@@ -213,6 +213,31 @@ $ cargo run --example katkem PQCkemKAT_935.req PQCkemKAT_935.rsp
 $ cargo run --example katkem PQCkemKAT_935.rsp
 ```
 
+### Example helper script
+
+There is a helper to run examples and auto-generate example key files when required:
+
+```bash
+$ ./scripts/run_example.sh
+$ ./scripts/run_example.sh encapsulate_from_file
+$ ./scripts/run_example.sh encapsulate_static_no_std mceliece348864f
+$ ./scripts/run_example.sh katkem -- PQCkemKAT_935.req PQCkemKAT_935.rsp
+```
+
+Notes:
+- Default example is `encapsulate_from_file` and default variant is `mceliece348864`.
+- Pass a variant as the second argument or via `--variant <name>`.
+- The helper generates `examples/keys/public_key_<variant>.bin` and
+  `examples/keys/secret_key_<variant>.bin` on demand.
+- The `encapsulate_static_no_std` example is gated behind the
+  `example-embedded-keys` feature to avoid missing key files during `cargo test`.
+
+If you want to run the embedded example directly, generate the example keys first:
+
+```bash
+$ ./scripts/gen-example-keys.sh --all
+```
+
 The different variants can be enabled through feature flags:
 
 ```bash

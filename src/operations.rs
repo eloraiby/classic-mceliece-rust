@@ -16,6 +16,19 @@ use crate::{
 };
 use rand::{CryptoRng, RngCore};
 
+pub(crate) fn derive_ss_from_e_and_c(
+    key: &mut [u8; CRYPTO_BYTES],
+    e: &[u8; SYS_N / 8],
+    c: &[u8; SYND_BYTES],
+) {
+    let mut one_ec = [0u8; 1 + SYS_N / 8 + SYND_BYTES];
+    one_ec[0] = 1;
+    one_ec[1..1 + SYS_N / 8].copy_from_slice(&e[..SYS_N / 8]);
+    one_ec[1 + SYS_N / 8..1 + SYS_N / 8 + SYND_BYTES].copy_from_slice(c);
+
+    shake256(&mut key[0..32], &one_ec);
+}
+
 /// This function determines (in a constant-time manner) whether the padding bits of `pk` are all zero.
 #[cfg(any(feature = "mceliece6960119", feature = "mceliece6960119f"))]
 fn check_pk_padding(pk: &[u8; PK_NROWS * PK_ROW_BYTES]) -> u8 {
@@ -53,15 +66,8 @@ pub(crate) fn crypto_kem_enc<R: CryptoRng + RngCore>(
 ) {
     let mut e = [0u8; SYS_N / 8];
 
-    let mut one_ec = [0u8; 1 + SYS_N / 8 + SYND_BYTES];
-    one_ec[0] = 1;
-
     encrypt(c, pk, sub!(mut e, 0, SYS_N / 8), rng);
-
-    one_ec[1..1 + SYS_N / 8].copy_from_slice(&e[..SYS_N / 8]);
-    one_ec[1 + SYS_N / 8..1 + SYS_N / 8 + SYND_BYTES].copy_from_slice(&c[0..SYND_BYTES]);
-
-    shake256(&mut key[0..32], &one_ec);
+    derive_ss_from_e_and_c(key, &e, sub!(c, 0, SYND_BYTES));
 }
 
 /// KEM Encapsulation.
@@ -78,17 +84,10 @@ pub(crate) fn crypto_kem_enc<R: CryptoRng + RngCore>(
 ) -> u8 {
     let mut e = [0u8; SYS_N / 8];
 
-    let mut one_ec = [0u8; 1 + SYS_N / 8 + SYND_BYTES];
-    one_ec[0] = 1;
-
     let padding_ok = check_pk_padding(pk);
 
     encrypt(c, pk, sub!(mut e, 0, SYS_N / 8), rng);
-
-    one_ec[1..1 + (SYS_N / 8)].copy_from_slice(&e[..SYS_N / 8]);
-    one_ec[1 + (SYS_N / 8)..1 + (SYS_N / 8) + SYND_BYTES].copy_from_slice(&c[0..SYND_BYTES]);
-
-    shake256(&mut key[0..32], &one_ec);
+    derive_ss_from_e_and_c(key, &e, sub!(c, 0, SYND_BYTES));
 
     // clear outputs (set to all 0's) if padding bits are not all zero
 
@@ -337,6 +336,7 @@ mod tests {
     use super::*;
     use crate::nist_aes_rng::AesState;
     use crate::test_utils::TestData;
+    use crate::test_utils::SliceReader;
     use std::convert::TryFrom;
 
     #[test]
@@ -398,6 +398,42 @@ mod tests {
     }
 
     #[test]
+    fn test_crypto_kem_enc_from_reader() {
+        use crate::api::{CRYPTO_BYTES, CRYPTO_CIPHERTEXTBYTES, CRYPTO_PUBLICKEYBYTES};
+
+        let mut c = [0u8; CRYPTO_CIPHERTEXTBYTES];
+        let mut ss = [0u8; CRYPTO_BYTES];
+        let pk = TestData::new().u8vec("mceliece8192128f_pk1");
+        assert_eq!(pk.len(), CRYPTO_PUBLICKEYBYTES);
+
+        let compare_ss = TestData::new().u8vec("mceliece8192128f_operations_ss");
+        let compare_ct = TestData::new().u8vec("mceliece8192128f_operations_enc1_ct");
+
+        let entropy_input = <[u8; 48]>::try_from(
+            TestData::new()
+                .u8vec("mceliece8192128f_operations_entropy_input")
+                .as_slice(),
+        )
+        .unwrap();
+
+        let mut rng_state = AesState::new();
+        rng_state.randombytes_init(entropy_input);
+
+        let mut second_seed = [0u8; 33];
+        second_seed[0] = 64;
+
+        rng_state.fill_bytes(&mut second_seed[1..]);
+
+        let mut reader = SliceReader { data: &pk, pos: 0 };
+        crate::streaming::crypto_kem_enc_from_reader(&mut c, &mut ss, &mut reader, &mut rng_state)
+            .unwrap();
+
+        assert_eq!(reader.pos, CRYPTO_PUBLICKEYBYTES);
+        assert_eq!(ss, compare_ss.as_slice());
+        assert_eq!(c, compare_ct.as_slice());
+    }
+
+    #[test]
     fn test_crypto_kem_keypair() {
         use crate::api::{CRYPTO_PUBLICKEYBYTES, CRYPTO_SECRETKEYBYTES};
 
@@ -428,5 +464,44 @@ mod tests {
 
         assert_eq!(compare_sk, sk_input);
         assert_eq!(compare_pk, pk_input);
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+    use crate::test_utils::{generate_public_key_bytes, SliceReader};
+
+    #[test]
+    fn test_crypto_kem_enc_from_reader_matches_enc() {
+        let pk = generate_public_key_bytes([0x55; 32]);
+        let mut c_direct = [0u8; CRYPTO_CIPHERTEXTBYTES];
+        let mut c_reader = [0u8; CRYPTO_CIPHERTEXTBYTES];
+        let mut ss_direct = [0u8; CRYPTO_BYTES];
+        let mut ss_reader = [0u8; CRYPTO_BYTES];
+
+        let mut rng_direct = StdRng::from_seed([0x99; 32]);
+        let mut rng_reader = StdRng::from_seed([0x99; 32]);
+
+        let _ = crypto_kem_enc(
+            &mut c_direct,
+            &mut ss_direct,
+            sub!(pk, 0, CRYPTO_PUBLICKEYBYTES),
+            &mut rng_direct,
+        );
+
+        let mut reader = SliceReader { data: &pk, pos: 0 };
+        crate::streaming::crypto_kem_enc_from_reader(
+            &mut c_reader,
+            &mut ss_reader,
+            &mut reader,
+            &mut rng_reader,
+        )
+        .unwrap();
+
+        assert_eq!(reader.pos, CRYPTO_PUBLICKEYBYTES);
+        assert_eq!(c_direct, c_reader);
+        assert_eq!(ss_direct, ss_reader);
     }
 }

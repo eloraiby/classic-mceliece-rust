@@ -11,6 +11,16 @@ use crate::params::{COND_BYTES, GFBITS};
 use crate::transpose;
 use crate::util;
 
+#[cfg(feature = "embedded-workspace")]
+struct SupportGenWorkspace {
+    l: [[u8; (1 << GFBITS) / 8]; GFBITS],
+}
+
+#[cfg(feature = "embedded-workspace")]
+static mut SUPPORT_WS: SupportGenWorkspace = SupportGenWorkspace {
+    l: [[0u8; (1 << GFBITS) / 8]; GFBITS],
+};
+
 /// Layers of the Beneš network. The required size of `data` and `bits` depends on the value `lgs`.
 /// NOTE const expressions are not sophisticated enough in rust yet to represent this relationship.
 ///
@@ -346,6 +356,13 @@ fn apply_benes(r: &mut [u8; 1024], bits: &[u8; COND_BYTES], rev: usize) {
 
 pub(crate) fn support_gen(s: &mut [Gf; SYS_N], c: &[u8; COND_BYTES]) {
     let mut a: Gf;
+    #[cfg(feature = "embedded-workspace")]
+    let l = unsafe { &mut SUPPORT_WS.l };
+    #[cfg(feature = "embedded-workspace")]
+    for row in l.iter_mut() {
+        row.fill(0);
+    }
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut l = [[0u8; (1 << GFBITS) / 8]; GFBITS];
 
     for i in 0..(1 << GFBITS) {

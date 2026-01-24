@@ -1,4 +1,9 @@
 //! This example tries to mimic a key exchange between two computers over a network.
+//!
+//! Run:
+//!   cargo run --example client-server --features mceliece348864
+//! Or:
+//!   ./scripts/run_example.sh client-server mceliece348864
 //! Here the "network" is simulated by simple message passing channels sending heap
 //! allocated byte buffers.
 #![cfg(feature = "alloc")]

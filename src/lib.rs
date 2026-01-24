@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
-#![forbid(unsafe_code)]
+#![cfg_attr(not(feature = "embedded-workspace"), forbid(unsafe_code))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod api;
@@ -25,6 +25,7 @@ mod test_utils;
 mod transpose;
 mod uint64_sort;
 mod util;
+pub mod streaming;
 
 use core::fmt::Debug;
 use rand::{CryptoRng, RngCore};

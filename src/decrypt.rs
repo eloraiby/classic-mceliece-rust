@@ -11,6 +11,28 @@ use crate::{
     util::load_gf,
 };
 
+#[cfg(feature = "embedded-workspace")]
+struct DecryptWorkspace {
+    r: [u8; SYS_N / 8],
+    g: [u16; SYS_T + 1],
+    l: [u16; SYS_N],
+    s: [u16; SYS_T * 2],
+    s_cmp: [u16; SYS_T * 2],
+    locator: [u16; SYS_T + 1],
+    images: [u16; SYS_N],
+}
+
+#[cfg(feature = "embedded-workspace")]
+static mut DECRYPT_WS: DecryptWorkspace = DecryptWorkspace {
+    r: [0u8; SYS_N / 8],
+    g: [0u16; SYS_T + 1],
+    l: [0u16; SYS_N],
+    s: [0u16; SYS_T * 2],
+    s_cmp: [0u16; SYS_T * 2],
+    locator: [0u16; SYS_T + 1],
+    images: [0u16; SYS_N],
+};
+
 /// Niederreiter decryption with the Berlekamp decoder.
 ///
 /// It takes as input the secret key `sk` and a ciphertext `c`.
@@ -23,15 +45,54 @@ pub(crate) fn decrypt(
     let mut t: u16;
     let mut w: i32 = 0;
 
+    #[cfg(feature = "embedded-workspace")]
+    let (r, g, l, s, s_cmp, locator, images) = {
+        let ws = unsafe { &mut DECRYPT_WS };
+        (
+            &mut ws.r,
+            &mut ws.g,
+            &mut ws.l,
+            &mut ws.s,
+            &mut ws.s_cmp,
+            &mut ws.locator,
+            &mut ws.images,
+        )
+    };
+    #[cfg(feature = "embedded-workspace")]
+    {
+        r.fill(0);
+        g.fill(0);
+        l.fill(0);
+        s.fill(0);
+        s_cmp.fill(0);
+        locator.fill(0);
+        images.fill(0);
+    }
+
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut r = [0u8; SYS_N / 8];
-
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut g = [0u16; SYS_T + 1];
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut l = [0u16; SYS_N];
-
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut s = [0u16; SYS_T * 2];
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut s_cmp = [0u16; SYS_T * 2];
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut locator = [0u16; SYS_T + 1];
+    #[cfg(not(feature = "embedded-workspace"))]
     let mut images = [0u16; SYS_N];
+    #[cfg(not(feature = "embedded-workspace"))]
+    let (r, g, l, s, s_cmp, locator, images) = (
+        &mut r,
+        &mut g,
+        &mut l,
+        &mut s,
+        &mut s_cmp,
+        &mut locator,
+        &mut images,
+    );
 
     r[..SYND_BYTES].copy_from_slice(&c[..SYND_BYTES]);
 
@@ -42,13 +103,13 @@ pub(crate) fn decrypt(
     }
     g[SYS_T] = 1;
 
-    support_gen(&mut l, sub!(sk, IRR_BYTES, COND_BYTES));
+    support_gen(l, sub!(sk, IRR_BYTES, COND_BYTES));
 
-    synd(&mut s, &g, &l, &r);
+    synd(s, g, l, r);
 
-    bm(&mut locator, &mut s);
+    bm(locator, s);
 
-    root(&mut images, &locator, &l);
+    root(images, locator, l);
 
     e[0..SYS_N / 8].fill(0);
 
@@ -59,7 +120,7 @@ pub(crate) fn decrypt(
         w += t as i32;
     }
 
-    synd(&mut s_cmp, &g, &l, e);
+    synd(s_cmp, g, l, e);
 
     let mut check = w as u16;
     check ^= SYS_T as u16;
