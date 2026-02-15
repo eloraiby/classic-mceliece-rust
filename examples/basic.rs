@@ -10,25 +10,6 @@ use classic_mceliece_rust::{CRYPTO_BYTES, CRYPTO_PUBLICKEYBYTES, CRYPTO_SECRETKE
 
 use rand::thread_rng;
 
-use std::fs::File;
-use std::io::{Read, Write};
-
-#[no_mangle]
-pub extern "C" fn getauxval(_type: usize) -> usize {
-    // For AT_HWCAP, you may want to return flags like:
-    // - 1 << 12 for NEON (on ARM)
-    // - 1 << 13 for VFPv4
-
-    // You can inspect `_type` and return different values if needed:
-    // const AT_HWCAP: usize = 16;
-    // match _type {
-    //     AT_HWCAP => 1 << 12, // NEON
-    //     _ => 0,
-    // }
-
-    0 // Generic safe fallback: no hardware features advertised
-}
-
 fn main() {
     let mut rng = thread_rng();
 
