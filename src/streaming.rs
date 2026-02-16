@@ -64,8 +64,10 @@ fn syndrome_from_reader<P: PublicKeyReader>(
     e: &[u8; SYS_N / 8],
 ) -> Result<(), P::Error> {
     const HAS_TAIL: bool = PK_NROWS % 8 != 0;
-    const CHECK_PADDING: bool =
-        cfg!(any(feature = "mceliece6960119", feature = "mceliece6960119f"));
+    const CHECK_PADDING: bool = cfg!(any(
+        feature = "mceliece6960119",
+        feature = "mceliece6960119f"
+    ));
 
     syndrome_core::<_, { HAS_TAIL }, { CHECK_PADDING }>(s, e, pk_reader)
 }
@@ -147,11 +149,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::{generate_public_key_bytes, SliceReader};
+    #[cfg(feature = "embedded-workspace")]
+    use crate::DecapsulationWorkspace;
     use crate::{
         decapsulate, keypair, CRYPTO_BYTES, CRYPTO_CIPHERTEXTBYTES, CRYPTO_PUBLICKEYBYTES,
         CRYPTO_SECRETKEYBYTES,
     };
-    use crate::test_utils::{generate_public_key_bytes, SliceReader};
     use rand::{rngs::StdRng, SeedableRng};
     use std::convert::TryInto;
 
@@ -179,6 +183,12 @@ mod tests {
             encapsulate_from_reader(&mut reader, &mut ss1_buf, &mut enc_rng).unwrap();
 
         let mut ss2_buf = [0u8; CRYPTO_BYTES];
+        #[cfg(feature = "embedded-workspace")]
+        let ss2 = {
+            let mut workspace = DecapsulationWorkspace::new();
+            decapsulate(&ciphertext, &secret_key, &mut ss2_buf, &mut workspace)
+        };
+        #[cfg(not(feature = "embedded-workspace"))]
         let ss2 = decapsulate(&ciphertext, &secret_key, &mut ss2_buf);
 
         assert_eq!(reader.pos, CRYPTO_PUBLICKEYBYTES);

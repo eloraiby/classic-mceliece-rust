@@ -120,10 +120,8 @@ pub(crate) fn generate_public_key_bytes(seed: [u8; 32]) -> std::vec::Vec<u8> {
     let mut pk_storage = vec![0u8; CRYPTO_PUBLICKEYBYTES];
     let mut sk_storage = vec![0u8; CRYPTO_SECRETKEYBYTES];
 
-    let pk_array: &mut [u8; CRYPTO_PUBLICKEYBYTES] =
-        pk_storage.as_mut_slice().try_into().unwrap();
-    let sk_array: &mut [u8; CRYPTO_SECRETKEYBYTES] =
-        sk_storage.as_mut_slice().try_into().unwrap();
+    let pk_array: &mut [u8; CRYPTO_PUBLICKEYBYTES] = pk_storage.as_mut_slice().try_into().unwrap();
+    let sk_array: &mut [u8; CRYPTO_SECRETKEYBYTES] = sk_storage.as_mut_slice().try_into().unwrap();
 
     let mut keygen_rng = StdRng::from_seed(seed);
     crate::operations::crypto_kem_keypair(pk_array, sk_array, &mut keygen_rng);

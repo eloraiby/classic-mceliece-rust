@@ -8,6 +8,8 @@
 //! allocated byte buffers.
 #![cfg(feature = "alloc")]
 
+#[cfg(feature = "embedded-workspace")]
+use classic_mceliece_rust::DecapsulationWorkspace;
 use classic_mceliece_rust::{
     decapsulate_boxed, encapsulate_boxed, keypair_boxed, Ciphertext, PublicKey, SharedSecret,
     CRYPTO_CIPHERTEXTBYTES, CRYPTO_PUBLICKEYBYTES,
@@ -90,5 +92,13 @@ fn run_client(
     let ciphertext = parse_ciphertext(&ciphertext_data)?;
 
     // Decapsulate the shared secret
-    Ok(decapsulate_boxed(&ciphertext, &secret_key))
+    #[cfg(feature = "embedded-workspace")]
+    {
+        let mut workspace = DecapsulationWorkspace::new();
+        Ok(decapsulate_boxed(&ciphertext, &secret_key, &mut workspace))
+    }
+    #[cfg(not(feature = "embedded-workspace"))]
+    {
+        Ok(decapsulate_boxed(&ciphertext, &secret_key))
+    }
 }

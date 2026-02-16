@@ -241,7 +241,6 @@ fn syndrome(
     let _ = syndrome_core::<_, { HAS_TAIL }, false>(s, e, &mut reader);
 }
 
-
 /// Encryption routine.
 /// Takes a public key `pk` to compute error vector `e` and syndrome `s`.
 pub(crate) fn encrypt<R: CryptoRng + RngCore>(
@@ -260,11 +259,11 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     use crate::api::{CRYPTO_CIPHERTEXTBYTES, CRYPTO_PUBLICKEYBYTES};
-    use crate::test_utils::{generate_public_key_bytes, SliceReader};
     #[cfg(feature = "mceliece8192128f")]
     use crate::nist_aes_rng::AesState;
     #[cfg(feature = "mceliece8192128f")]
     use crate::test_utils::TestData;
+    use crate::test_utils::{generate_public_key_bytes, SliceReader};
 
     #[test]
     fn test_encrypt_from_reader_matches_encrypt() {
@@ -285,8 +284,13 @@ mod tests {
         );
 
         let mut reader = SliceReader { data: &pk, pos: 0 };
-        crate::streaming::encrypt_from_reader(&mut c_reader, &mut reader, &mut e_reader, &mut rng_reader)
-            .unwrap();
+        crate::streaming::encrypt_from_reader(
+            &mut c_reader,
+            &mut reader,
+            &mut e_reader,
+            &mut rng_reader,
+        )
+        .unwrap();
 
         assert_eq!(reader.pos, CRYPTO_PUBLICKEYBYTES);
         assert_eq!(e_direct, e_reader);

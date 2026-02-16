@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
-#![cfg_attr(not(feature = "embedded-workspace"), forbid(unsafe_code))]
+#![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod api;
@@ -18,6 +18,7 @@ mod params;
 mod pk_gen;
 mod root;
 mod sk_gen;
+pub mod streaming;
 mod synd;
 mod test_katkem;
 mod test_kem;
@@ -25,7 +26,6 @@ mod test_utils;
 mod transpose;
 mod uint64_sort;
 mod util;
-pub mod streaming;
 
 use core::fmt::Debug;
 use rand::{CryptoRng, RngCore};
@@ -42,6 +42,8 @@ pub use api::{
     CRYPTO_BYTES, CRYPTO_CIPHERTEXTBYTES, CRYPTO_PRIMITIVE, CRYPTO_PUBLICKEYBYTES,
     CRYPTO_SECRETKEYBYTES,
 };
+#[cfg(feature = "embedded-workspace")]
+pub use decrypt::DecapsulationWorkspace;
 
 mod macros {
     /// This macro(A, B, C, T) allows to get “&A[B..B+C]” of type “&[T]” as type “&[T; C]”.
@@ -408,6 +410,7 @@ pub fn encapsulate_boxed<R: CryptoRng + RngCore>(
 ///
 /// Given a secret key `secret_key` and a ciphertext `ciphertext`,
 /// determine the shared key negotiated by both parties.
+#[cfg(not(feature = "embedded-workspace"))]
 pub fn decapsulate<'shared_secret>(
     ciphertext: &Ciphertext,
     secret_key: &SecretKey,
@@ -424,9 +427,35 @@ pub fn decapsulate<'shared_secret>(
     SharedSecret(shared_secret_buf)
 }
 
+/// KEM Decapsulation.
+///
+/// Embedded targets should pass a reusable [`DecapsulationWorkspace`] to avoid
+/// large stack allocations and to keep decapsulation reentrant.
+///
+/// The workspace internals (including support-generation scratch) are used as
+/// ephemeral state and are scrubbed by the decapsulation flow.
+#[cfg(feature = "embedded-workspace")]
+pub fn decapsulate<'shared_secret>(
+    ciphertext: &Ciphertext,
+    secret_key: &SecretKey,
+    shared_secret_buf: &'shared_secret mut [u8; CRYPTO_BYTES],
+    workspace: &mut DecapsulationWorkspace,
+) -> SharedSecret<'shared_secret> {
+    let mut shared_secret_buf = KeyBufferMut::Borrowed(shared_secret_buf);
+
+    operations::crypto_kem_dec(
+        shared_secret_buf.as_mut(),
+        ciphertext.as_array(),
+        secret_key.as_array(),
+        workspace,
+    );
+
+    SharedSecret(shared_secret_buf)
+}
+
 /// Convenient wrapper around [`decapsulate`] that stores the shared secret on the heap
 /// and returns it with the ``'static`` lifetime.
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", not(feature = "embedded-workspace")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub fn decapsulate_boxed(ciphertext: &Ciphertext, secret_key: &SecretKey) -> SharedSecret<'static> {
     let mut shared_secret_buf = KeyBufferMut::Owned(Box::new([0u8; CRYPTO_BYTES]));
@@ -435,6 +464,29 @@ pub fn decapsulate_boxed(ciphertext: &Ciphertext, secret_key: &SecretKey) -> Sha
         shared_secret_buf.as_mut(),
         ciphertext.as_array(),
         secret_key.as_array(),
+    );
+
+    SharedSecret(shared_secret_buf)
+}
+
+/// Convenient wrapper around [`decapsulate`] for heap-backed shared secret.
+///
+/// Workspace internals are treated as temporary state and scrubbed during
+/// decapsulation.
+#[cfg(all(feature = "alloc", feature = "embedded-workspace"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub fn decapsulate_boxed(
+    ciphertext: &Ciphertext,
+    secret_key: &SecretKey,
+    workspace: &mut DecapsulationWorkspace,
+) -> SharedSecret<'static> {
+    let mut shared_secret_buf = KeyBufferMut::Owned(Box::new([0u8; CRYPTO_BYTES]));
+
+    operations::crypto_kem_dec(
+        shared_secret_buf.as_mut(),
+        ciphertext.as_array(),
+        secret_key.as_array(),
+        workspace,
     );
 
     SharedSecret(shared_secret_buf)
@@ -511,11 +563,24 @@ mod kem_api {
                 .try_into()
                 .expect("GenericArray should be CRYPTO_BYTES long");
 
+            #[cfg(not(feature = "embedded-workspace"))]
             crate::operations::crypto_kem_dec(
                 shared_secret_buf,
                 ciphertext.as_array(),
                 self.as_array(),
             );
+            #[cfg(feature = "embedded-workspace")]
+            {
+                // KEM trait signatures cannot carry an external workspace.
+                // For this trait adapter we allocate a local one.
+                let mut workspace = crate::decrypt::DecapsulationWorkspace::new();
+                crate::operations::crypto_kem_dec(
+                    shared_secret_buf,
+                    ciphertext.as_array(),
+                    self.as_array(),
+                    &mut workspace,
+                );
+            }
             Ok(SharedSecret::<Ciphertext>::new(shared_secret))
         }
     }

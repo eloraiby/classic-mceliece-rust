@@ -72,6 +72,12 @@ Here, we consider an example where we run it in a separate thread (be aware that
 
     // Send `ciphertext` back to Alice.
     // Alice decapsulates the ciphertext...
+    #[cfg(feature = "embedded-workspace")]
+    let shared_secret_alice = {
+      let mut workspace = classic_mceliece_rust::DecapsulationWorkspace::new();
+      decapsulate_boxed(&ciphertext, &secret_key, &mut workspace)
+    };
+    #[cfg(not(feature = "embedded-workspace"))]
     let shared_secret_alice = decapsulate_boxed(&ciphertext, &secret_key);
 
     // ... and ends up with the same key material as Bob.
@@ -127,6 +133,12 @@ fn main() {
   let (ciphertext, shared_secret_bob) = encapsulate(&public_key, &mut shared_secret_bob_buf, &mut rng);
 
   let mut shared_secret_alice_buf = [0u8; CRYPTO_BYTES];
+  #[cfg(feature = "embedded-workspace")]
+  let shared_secret_alice = {
+    let mut workspace = classic_mceliece_rust::DecapsulationWorkspace::new();
+    decapsulate(&ciphertext, &secret_key, &mut shared_secret_alice_buf, &mut workspace)
+  };
+  #[cfg(not(feature = "embedded-workspace"))]
   let shared_secret_alice = decapsulate(&ciphertext, &secret_key, &mut shared_secret_alice_buf);
 
   assert_eq!(shared_secret_bob.as_array(), shared_secret_alice.as_array());

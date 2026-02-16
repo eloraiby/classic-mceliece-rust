@@ -10,18 +10,15 @@
 //! The public key file must contain `CRYPTO_PUBLICKEYBYTES` bytes in row-major order.
 //! A matching secret key file is used to validate decapsulation.
 
-use classic_mceliece_rust::{
-    decapsulate,
-    keypair_boxed,
-    streaming::{encapsulate_from_reader, PublicKeyReader},
-    SecretKey,
-    CRYPTO_BYTES,
-    CRYPTO_PRIMITIVE,
-    CRYPTO_PUBLICKEYBYTES,
-    CRYPTO_SECRETKEYBYTES,
-};
 use aes::cipher::{BlockEncrypt, KeyInit};
 use aes::Aes256;
+#[cfg(feature = "embedded-workspace")]
+use classic_mceliece_rust::DecapsulationWorkspace;
+use classic_mceliece_rust::{
+    decapsulate, keypair_boxed,
+    streaming::{encapsulate_from_reader, PublicKeyReader},
+    SecretKey, CRYPTO_BYTES, CRYPTO_PRIMITIVE, CRYPTO_PUBLICKEYBYTES, CRYPTO_SECRETKEYBYTES,
+};
 use rand::{rngs::StdRng, SeedableRng};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
 use sha3::Shake256;
@@ -286,6 +283,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let secret_key = SecretKey::from(&mut sk_buf);
 
     let mut ss2_buf = [0u8; CRYPTO_BYTES];
+    #[cfg(feature = "embedded-workspace")]
+    let ss2 = {
+        let mut workspace = DecapsulationWorkspace::new();
+        decapsulate(&ciphertext, &secret_key, &mut ss2_buf, &mut workspace)
+    };
+    #[cfg(not(feature = "embedded-workspace"))]
     let ss2 = decapsulate(&ciphertext, &secret_key, &mut ss2_buf);
     if shared_secret.as_array() != ss2.as_array() {
         return Err(Box::new(io::Error::new(

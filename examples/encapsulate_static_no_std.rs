@@ -12,16 +12,15 @@
 //! `examples/keys/secret_key_<variant>.bin`.
 //! Replace those files with your actual key bytes stored in ROM/flash.
 
+use aes::cipher::{BlockEncrypt, KeyInit};
+use aes::Aes256;
+#[cfg(feature = "embedded-workspace")]
+use classic_mceliece_rust::DecapsulationWorkspace;
 use classic_mceliece_rust::{
     decapsulate,
     streaming::{encapsulate_from_reader, PublicKeyReader},
-    SecretKey,
-    CRYPTO_BYTES,
-    CRYPTO_PUBLICKEYBYTES,
-    CRYPTO_SECRETKEYBYTES,
+    SecretKey, CRYPTO_BYTES, CRYPTO_PUBLICKEYBYTES, CRYPTO_SECRETKEYBYTES,
 };
-use aes::cipher::{BlockEncrypt, KeyInit};
-use aes::Aes256;
 use rand::{CryptoRng, RngCore};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
 use sha3::Shake256;
@@ -159,19 +158,26 @@ impl PublicKeyReader for StaticStorageReader {
     }
 }
 
-struct CounterRng(u64);
+/// Small deterministic RNG for no-std demo runs.
+///
+/// This is *not* cryptographically secure, but unlike a simple counter it
+/// provides enough diffusion to avoid pathological rejection-loop behavior in
+/// `gen_e`.
+struct DemoRng(u64);
 
-impl RngCore for CounterRng {
+impl RngCore for DemoRng {
     fn next_u32(&mut self) -> u32 {
-        let value = self.0 as u32;
-        self.0 = self.0.wrapping_add(1);
-        value
+        self.next_u64() as u32
     }
 
     fn next_u64(&mut self) -> u64 {
-        let value = self.0;
-        self.0 = self.0.wrapping_add(1);
-        value
+        // xorshift64* (deterministic, fast, non-cryptographic)
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
@@ -188,7 +194,7 @@ impl RngCore for CounterRng {
     }
 }
 
-impl CryptoRng for CounterRng {}
+impl CryptoRng for DemoRng {}
 
 fn derive_aes_key_nonce(shared_secret: &[u8; CRYPTO_BYTES]) -> ([u8; 32], [u8; 16]) {
     let mut shake = Shake256::default();
@@ -239,7 +245,7 @@ fn main() {
     #[allow(static_mut_refs)]
     let mut reader = StaticStorageReader::new(unsafe { &mut STATIC_BUFFER });
     let mut shared_secret_buf = [0u8; CRYPTO_BYTES];
-    let mut rng = CounterRng(0x1234_5678_9ABC_DEF0);
+    let mut rng = DemoRng(0x1234_5678_9ABC_DEF0);
 
     let (ciphertext, shared_secret) =
         encapsulate_from_reader(&mut reader, &mut shared_secret_buf, &mut rng)
@@ -248,6 +254,12 @@ fn main() {
     #[allow(static_mut_refs)]
     let secret_key = SecretKey::from(unsafe { &mut SECRET_KEY_BYTES });
     let mut ss2_buf = [0u8; CRYPTO_BYTES];
+    #[cfg(feature = "embedded-workspace")]
+    let ss2 = {
+        let mut workspace = DecapsulationWorkspace::new();
+        decapsulate(&ciphertext, &secret_key, &mut ss2_buf, &mut workspace)
+    };
+    #[cfg(not(feature = "embedded-workspace"))]
     let ss2 = decapsulate(&ciphertext, &secret_key, &mut ss2_buf);
     if shared_secret.as_array() != ss2.as_array() {
         panic!("shared secret mismatch");
